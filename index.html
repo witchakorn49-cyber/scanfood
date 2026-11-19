@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>สแกนขนม เช็กโภชนาการ</title>
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: "Sarabun", "Noto Sans Thai", system-ui, sans-serif;
+    background: #f4f6f8; color: #1f2933;
+  }
+  header { background: #0f766e; color: #fff; padding: 16px; text-align: center; }
+  header h1 { margin: 0; font-size: 1.3rem; }
+  header p { margin: 4px 0 0; font-size: .9rem; opacity: .85; }
+  main { max-width: 480px; margin: 0 auto; padding: 16px; }
+  .card { background: #fff; border-radius: 14px; padding: 16px; margin-bottom: 16px;
+          box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+  #reader { width: 100%; border-radius: 10px; overflow: hidden; }
+  button { width: 100%; padding: 14px; font-size: 1rem; font-family: inherit; border: 0;
+           border-radius: 10px; background: #0f766e; color: #fff; cursor: pointer; margin-top: 10px; }
+  button.secondary { background: #e5e7eb; color: #1f2933; }
+  .manual { display: flex; gap: 8px; margin-top: 10px; }
+  .manual input { flex: 1; padding: 12px; font-size: 1rem; border: 1px solid #cbd5e1; border-radius: 10px; }
+  .manual button { width: auto; margin: 0; padding: 12px 16px; }
+  .status { text-align: center; color: #52606d; font-size: .95rem; margin: 8px 0 0; }
+  .product { display: flex; gap: 12px; align-items: center; }
+  .product img { width: 90px; height: 90px; object-fit: contain; border-radius: 8px; background: #f1f5f9; }
+  .product h2 { margin: 0 0 4px; font-size: 1.1rem; }
+  .product .meta { color: #52606d; font-size: .9rem; }
+  table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+  td { padding: 10px 6px; border-bottom: 1px solid #eef2f6; }
+  td:last-child { text-align: right; font-weight: 600; }
+  .badge { display: inline-block; min-width: 56px; text-align: center; padding: 3px 8px;
+           border-radius: 999px; font-size: .8rem; font-weight: 600; margin-left: 6px; }
+  .low { background: #dcfce7; color: #166534; }
+  .med { background: #fef3c7; color: #92400e; }
+  .high { background: #fee2e2; color: #991b1b; }
+  .na { background: #e5e7eb; color: #52606d; }
+  .note { font-size: .8rem; color: #7b8794; margin-top: 10px; }
+  .hidden { display: none; }
+  a { color: #0f766e; }
+</style>
+</head>
+<body>
+<header>
+  <h1>📦 สแกนขนม เช็กโภชนาการ</h1>
+  <p>ข้อมูลจาก Open Food Facts (ต่อ 100 กรัม)</p>
+</header>
+
+<main>
+  <div class="card">
+    <div id="reader"></div>
+    <button id="startBtn">📷 เปิดกล้องสแกน</button>
+    <button id="stopBtn" class="secondary hidden">หยุดสแกน</button>
+    <div class="manual">
+      <input id="manualCode" type="text" inputmode="numeric" placeholder="หรือพิมพ์เลข barcode">
+      <button id="manualBtn">ค้นหา</button>
+    </div>
+    <p id="status" class="status">กดปุ่มเพื่อเปิดกล้อง แล้วส่องไปที่ barcode</p>
+  </div>
+
+  <div id="result" class="card hidden"></div>
+</main>
+
+<script>
+  const statusEl = document.getElementById("status");
+  const resultEl = document.getElementById("result");
+  const startBtn = document.getElementById("startBtn");
+  const stopBtn  = document.getElementById("stopBtn");
+
+  const scanner = new Html5Qrcode("reader", {
+    formatsToSupport: [
+      Html5QrcodeSupportedFormats.EAN_13,
+      Html5QrcodeSupportedFormats.EAN_8,
+      Html5QrcodeSupportedFormats.UPC_A,
+      Html5QrcodeSupportedFormats.UPC_E,
+      Html5QrcodeSupportedFormats.CODE_128
+    ],
+    experimentalFeatures: { useBarCodeDetectorIfSupported: true },
+    verbose: false
+  });
+
+  let scanning = false;
+  let handling = false;
+
+  async function startScan() {
+    resultEl.classList.add("hidden");
+    statusEl.textContent = "กำลังเปิดกล้อง...";
+    try {
+      await scanner.start(
+        { facingMode: "environment" },          // กล้องหลัง
+        { fps: 10, qrbox: { width: 260, height: 140 } },
+        onScanSuccess,
+        () => {}                                  // ยังอ่านไม่ได้ในเฟรมนี้ — ไม่ต้องทำอะไร
+      );
+      scanning = true;
+      handling = false;
+      startBtn.classList.add("hidden");
+      stopBtn.classList.remove("hidden");
+      statusEl.textContent = "ส่องกล้องไปที่ barcode ให้อยู่ในกรอบ";
+    } catch (err) {
+      statusEl.textContent = "เปิดกล้องไม่ได้: ตรวจว่าเปิดผ่าน https และกดอนุญาตใช้กล้องแล้ว";
+      console.error(err);
+    }
+  }
+
+  async function stopScan() {
+    if (scanning) {
+      try { await scanner.stop(); } catch (e) { console.error(e); }
+    }
+    scanning = false;
+    startBtn.classList.remove("hidden");
+    stopBtn.classList.add("hidden");
+  }
+
+  async function onScanSuccess(code) {
+    if (handling) return;                         // กันสแกนซ้ำหลายครั้ง
+    handling = true;
+    if (navigator.vibrate) navigator.vibrate(150);
+    await stopScan();
+    startBtn.textContent = "📷 สแกนชิ้นถัดไป";
+    lookup(code);
+  }
+
+  async function lookup(code) {
+    code = String(code).trim();
+    if (!/^\d{6,14}$/.test(code)) {
+      statusEl.textContent = "เลข barcode ไม่ถูกต้อง";
+      return;
+    }
+    statusEl.textContent = `พบ barcode ${code} กำลังค้นข้อมูล...`;
+    const fields = "product_name,product_name_th,brands,quantity,image_front_small_url,nutriments,nutriscore_grade";
+    try {
+      const res = await fetch(`https://world.openfoodfacts.org/api/v2/product/${code}.json?fields=${fields}`);
+      const data = await res.json();
+      if (data.status !== 1 || !data.product) {
+        showNotFound(code);
+      } else {
+        showProduct(code, data.product);
+      }
+    } catch (err) {
+      statusEl.textContent = "เชื่อมต่อ Open Food Facts ไม่ได้ ลองใหม่อีกครั้ง";
+      console.error(err);
+    }
+  }
+
+  // เกณฑ์สัญญาณไฟจราจร (UK FSA) ต่อ 100 กรัม
+  const LIMITS = {
+    sugar:  { low: 5,   high: 22.5 },
+    fat:    { low: 3,   high: 17.5 },
+    satfat: { low: 1.5, high: 5 },
+    salt:   { low: 0.3, high: 1.5 }
+  };
+
+  function level(value, key) {
+    if (value == null || isNaN(value)) return ["na", "ไม่มีข้อมูล"];
+    const l = LIMITS[key];
+    if (value <= l.low)  return ["low", "ต่ำ"];
+    if (value > l.high)  return ["high", "สูง"];
+    return ["med", "ปานกลาง"];
+  }
+
+  function esc(s) {
+    return String(s ?? "").replace(/[&<>"']/g, c =>
+      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  }
+
+  function num(v) { return v == null || v === "" ? null : Number(v); }
+  function fmt(v, unit) { return v == null || isNaN(v) ? "-" : `${+v.toFixed(2)} ${unit}`; }
+
+  function row(label, value, unit, key) {
+    const badge = key ? (() => { const [c, t] = level(value, key); return `<span class="badge ${c}">${t}</span>`; })() : "";
+    return `<tr><td>${label}${badge}</td><td>${fmt(value, unit)}</td></tr>`;
+  }
+
+  function showProduct(code, p) {
+    const n = p.nutriments || {};
+    const kcal   = num(n["energy-kcal_100g"]);
+    const sugar  = num(n.sugars_100g);
+    const fat    = num(n.fat_100g);
+    const satfat = num(n["saturated-fat_100g"]);
+    let salt     = num(n.salt_100g);
+    let sodiumMg = n.sodium_100g != null ? Number(n.sodium_100g) * 1000 : null;
+    if (salt == null && sodiumMg != null) salt = sodiumMg / 1000 * 2.5;
+    if (sodiumMg == null && salt != null) sodiumMg = salt / 2.5 * 1000;
+
+    const name = p.product_name_th || p.product_name || "(ไม่มีชื่อสินค้า)";
+    const img = p.image_front_small_url
+      ? `<img src="${esc(p.image_front_small_url)}" alt="">` : "";
+    const grade = p.nutriscore_grade && /^[a-e]$/.test(p.nutriscore_grade)
+      ? ` · Nutri-Score ${p.nutriscore_grade.toUpperCase()}` : "";
+
+    resultEl.innerHTML = `
+      <div class="product">
+        ${img}
+        <div>
+          <h2>${esc(name)}</h2>
+          <div class="meta">${esc(p.brands || "")} ${esc(p.quantity || "")}</div>
+          <div class="meta">Barcode: ${esc(code)}${grade}</div>
+        </div>
+      </div>
+      <table>
+        ${row("พลังงาน", kcal, "kcal")}
+        ${row("น้ำตาล", sugar, "g", "sugar")}
+        ${row("ไขมัน", fat, "g", "fat")}
+        ${row("ไขมันอิ่มตัว", satfat, "g", "satfat")}
+        ${row("เกลือ", salt, "g", "salt")}
+        ${row("โซเดียม", sodiumMg, "mg")}
+      </table>
+      <p class="note">เกณฑ์ ต่ำ/ปานกลาง/สูง ใช้สัญญาณไฟจราจรของ UK FSA ต่อ 100 กรัม · ข้อมูลกรอกโดยผู้ใช้ Open Food Facts อาจไม่ครบหรือคลาดเคลื่อน</p>`;
+    resultEl.classList.remove("hidden");
+    statusEl.textContent = "พบข้อมูลสินค้า";
+  }
+
+  function showNotFound(code) {
+    resultEl.innerHTML = `
+      <h2 style="margin-top:0">ไม่พบสินค้านี้</h2>
+      <p>Barcode <b>${esc(code)}</b> ยังไม่มีในฐานข้อมูล Open Food Facts</p>
+      <p><a href="https://world.openfoodfacts.org/product/${esc(code)}" target="_blank" rel="noopener">
+        เพิ่มข้อมูลสินค้านี้ที่ Open Food Facts</a></p>`;
+    resultEl.classList.remove("hidden");
+    statusEl.textContent = "ไม่พบข้อมูล";
+  }
+
+  startBtn.addEventListener("click", startScan);
+  stopBtn.addEventListener("click", async () => {
+    await stopScan();
+    statusEl.textContent = "หยุดสแกนแล้ว";
+  });
+  document.getElementById("manualBtn").addEventListener("click", async () => {
+    await stopScan();
+    lookup(document.getElementById("manualCode").value);
+  });
+  document.getElementById("manualCode").addEventListener("keydown", e => {
+    if (e.key === "Enter") document.getElementById("manualBtn").click();
+  });
+</script>
+</body>
+</html>
